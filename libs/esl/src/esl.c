@@ -59,6 +59,7 @@
 /* These warnings need to be ignored warning in sdk header */
 #include <Ws2tcpip.h>
 #include <windows.h>
+#include <errno.h>
 #ifndef errno
 #define errno WSAGetLastError()
 #endif
@@ -1226,12 +1227,13 @@ static esl_ssize_t handle_recv(esl_handle_t *handle, void *data, esl_size_t data
 	esl_ssize_t activity = -1;
 	
 	if (handle->connected) {
-		if ((activity = esl_wait_sock(handle->sock, -1, ESL_POLL_READ|ESL_POLL_ERROR)) > 0) {
+		if ((activity = esl_wait_sock(handle->sock, 1000, ESL_POLL_READ|ESL_POLL_ERROR)) > 0) {
 			if ((activity & ESL_POLL_ERROR)) {
 				activity = -1;
 			} else if ((activity & ESL_POLL_READ)) {
-				activity = recv(handle->sock, data, datalen, 0);
-				if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+				if (!(activity = recv(handle->sock, data, datalen, 0))) {
+					activity = -1;
+				} else if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
 					activity = 0;
 				}
 			}

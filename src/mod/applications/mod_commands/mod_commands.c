@@ -34,7 +34,7 @@
  * Rupa Schomaker <rupa@rupa.com>
  * Joseph Sullivan <jossulli@amazon.com>
  * Raymond Chandler <intralanman@freeswitch.org>
- *
+ * Seven Du <dujinfang@gmail.com>
  * Garmt Boekholt <garmt@cimico.com>
  *
  * mod_commands.c -- Misc. Command Module
@@ -1945,6 +1945,16 @@ SWITCH_STANDARD_API(cond_function)
 			expr = a;
 		}
 	}
+
+	if (strspn(a, "!<>=")) {
+		expr = a;
+	}
+
+	if (expr == a) {
+		a = "";
+	}
+
+	while (*expr == ' ') expr++;
 
 	while(expr && *expr) {
 		switch(*expr) {
@@ -6272,6 +6282,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_commands_load)
 	SWITCH_ADD_API(commands_api_interface, "file_exists", "Check if a file exists on server", file_exists_function, "<file>");
 
 	switch_console_set_complete("add alias add");
+	switch_console_set_complete("add alias stickyadd");
 	switch_console_set_complete("add alias del");
 	switch_console_set_complete("add coalesce");
 	switch_console_set_complete("add complete add");

@@ -6,10 +6,10 @@ NAME = freeswitch
 AM_LIBAPR_CFLAGS := $(shell ./libs/apr/apr-1-config --cflags)
 AM_LIBAPR_CPPFLAGS := $(shell ./libs/apr/apr-1-config --cppflags --includes)
 AM_LIBAPR_LDFLAGS := $(shell ./libs/apr/apr-1-config --ldflags)
-AM_LIBAPR_LIBS := $(subst $(CURDIR)/,,$(shell ./libs/apr/apr-1-config \--link-libtool \--libs))
+AM_LIBAPR_LIBS := $(subst $(switch_srcdir)/,,$(shell ./libs/apr/apr-1-config \--link-libtool \--libs))
 AM_LIBAPU_CPPFLAGS := $(shell ./libs/apr-util/apu-1-config --includes)
 AM_LIBAPU_LDFLAGS := $(shell ./libs/apr-util/apu-1-config --ldflags)
-AM_LIBAPU_LIBS := $(subst $(CURDIR)/,,$(shell ./libs/apr-util/apu-1-config \--link-libtool \--libs))
+AM_LIBAPU_LIBS := $(subst $(switch_srcdir)/,,$(shell ./libs/apr-util/apu-1-config \--link-libtool \--libs))
 
 AM_CFLAGS   = $(SWITCH_AM_CFLAGS) $(SWITCH_ANSI_CFLAGS) 
 AM_CPPFLAGS = $(SWITCH_AM_CXXFLAGS) -Ilibs/sofia-sip/libsofia-sip-ua/sdp/sofia-sip -Ilibs/sofia-sip/libsofia-sip-ua/su
@@ -295,6 +295,7 @@ libfreeswitch_la_SOURCES = \
 	libs/libnatpmp/natpmp.c \
 	libs/libnatpmp/getgateway.c\
 	libs/spandsp/src/plc.c \
+	libs/spandsp/src/alloc.c \
 	libs/spandsp/src/bit_operations.c
 
 if ENABLE_CPP
