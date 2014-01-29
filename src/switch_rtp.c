@@ -281,7 +281,8 @@ struct switch_rtp {
 	int zrtp_mitm_tries;
 	int zinit;
 #endif
-
+	
+	uint32_t passing_dtmf;
 
 };
 
@@ -347,6 +348,15 @@ static void do_2833(switch_rtp_t *rtp_session, switch_core_session_t *session);
 static handle_rfc2833_result_t handle_rfc2833(switch_rtp_t *rtp_session, switch_size_t bytes, int *do_cng)
 {
 
+	if (rtp_session->passing_dtmf) {
+		rtp_session->passing_dtmf++;
+
+		if (rtp_session->passing_dtmf > 1000) {
+			rtp_session->passing_dtmf = 0;
+		}
+	}
+
+
 #ifdef DEBUG_2833
 	if (rtp_session->dtmf_data.in_digit_sanity && !(rtp_session->dtmf_data.in_digit_sanity % 100)) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "sanity %d %ld\n", rtp_session->dtmf_data.in_digit_sanity, bytes);
@@ -366,7 +376,7 @@ static handle_rfc2833_result_t handle_rfc2833(switch_rtp_t *rtp_session, switch_
 	   doing it right. Nice guys finish last!
 	*/
 	if (bytes > rtp_header_len && !switch_test_flag(rtp_session, SWITCH_RTP_FLAG_PROXY_MEDIA) &&
-		!switch_test_flag(rtp_session, SWITCH_RTP_FLAG_PASS_RFC2833) && rtp_session->recv_te && rtp_session->recv_msg.header.pt == rtp_session->recv_te) {
+		rtp_session->recv_te && rtp_session->recv_msg.header.pt == rtp_session->recv_te) {
 		switch_size_t len = bytes - rtp_header_len;
 		unsigned char *packet = (unsigned char *) RTP_BODY(rtp_session);
 		int end;
@@ -396,6 +406,17 @@ static handle_rfc2833_result_t handle_rfc2833(switch_rtp_t *rtp_session, switch_
 		key = switch_rfc2833_to_char(packet[0]);
 		in_digit_seq = ntohs((uint16_t) rtp_session->recv_msg.header.seq);
 		ts = htonl(rtp_session->recv_msg.header.ts);
+
+		if (switch_test_flag(rtp_session, SWITCH_RTP_FLAG_PASS_RFC2833)) {
+
+			if (end) {
+				rtp_session->passing_dtmf = 998;
+			} else if (!rtp_session->passing_dtmf) {
+				rtp_session->passing_dtmf = 1;
+			}
+
+			return RESULT_CONTINUE;
+		}
 
 		if (in_digit_seq < rtp_session->dtmf_data.in_digit_seq) {
 			if (rtp_session->dtmf_data.in_digit_seq - in_digit_seq > 100) {
@@ -1289,7 +1310,7 @@ SWITCH_DECLARE(switch_port_t) switch_rtp_request_port(const char *ip)
 	switch_mutex_lock(port_lock);
 	alloc = switch_core_hash_find(alloc_hash, ip);
 	if (!alloc) {
-		if (switch_core_port_allocator_new(START_PORT, END_PORT, SPF_EVEN, &alloc) != SWITCH_STATUS_SUCCESS) {
+		if (switch_core_port_allocator_new(ip, START_PORT, END_PORT, SPF_EVEN, &alloc) != SWITCH_STATUS_SUCCESS) {
 			abort();
 		}
 
@@ -2875,10 +2896,11 @@ static void do_flush(switch_rtp_t *rtp_session)
 	int was_blocking = 0;
 	switch_size_t bytes;
 	uint32_t flushed = 0;
-
+	
 	if (!switch_rtp_ready(rtp_session) || 
 		switch_test_flag(rtp_session, SWITCH_RTP_FLAG_PROXY_MEDIA) || 
-		switch_test_flag(rtp_session, SWITCH_RTP_FLAG_VIDEO) 
+		switch_test_flag(rtp_session, SWITCH_RTP_FLAG_VIDEO) ||
+		rtp_session->passing_dtmf
 		) {
 		return;
 	}
@@ -4205,6 +4227,9 @@ static int rtp_common_write(switch_rtp_t *rtp_session,
 
 	if (send_msg) {
 		bytes = datalen;
+
+		m = (uint8_t) send_msg->header.m;
+
 		if (flags && *flags & SFF_RFC2833) {
 			send_msg->header.pt = rtp_session->te;
 		}

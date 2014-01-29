@@ -3576,6 +3576,7 @@ void sofia_presence_handle_sip_i_subscribe(int status,
 	const char *use_to_tag;
 	char to_tag[13] = "";
 	char buf[80] = "";
+	char *orig_to_user = NULL;
 
 	if (!sip) {
 		return;
@@ -3667,6 +3668,8 @@ void sofia_presence_handle_sip_i_subscribe(int status,
 	}
 
 	switch_snprintf(exp_delta_str, sizeof(exp_delta_str), "%ld", exp_delta);
+
+	orig_to_user = su_strdup(nua_handle_home(nh), to_user);
 
 	if (to_user && strchr(to_user, '+')) {
 		char *h;
@@ -3877,9 +3880,9 @@ void sofia_presence_handle_sip_i_subscribe(int status,
 
 		if (contactstr && (p = strchr(contactstr, '@'))) {
 			if (strrchr(p, '>')) {
-				new_contactstr = switch_mprintf("<sip:%s%s", to_user, p);
+				new_contactstr = switch_mprintf("<sip:%s%s", orig_to_user, p);
 			} else {
-				new_contactstr = switch_mprintf("<sip:%s%s>", to_user, p);
+				new_contactstr = switch_mprintf("<sip:%s%s>", orig_to_user, p);
 			}
 		}
 		
@@ -4171,6 +4174,7 @@ void sofia_presence_handle_sip_r_subscribe(int status,
 {
 	sip_event_t const *o = NULL;
 	sofia_gateway_subscription_t *gw_sub_ptr;
+	sofia_gateway_t *gateway = NULL;
 
 	if (!sip) {
 		return;
@@ -4183,16 +4187,23 @@ void sofia_presence_handle_sip_r_subscribe(int status,
 		return;
 	}
 
-	if (!sofia_private || !sofia_private->gateway) {
+	if (!sofia_private || zstr(sofia_private->gateway_name)) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Gateway information missing\n");
 		return;
 	}
 
-	/* Find the subscription if one exists */
-	if (!(gw_sub_ptr = sofia_find_gateway_subscription(sofia_private->gateway, o->o_type))) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Could not find gateway subscription.  Gateway: %s.  Subscription Event: %s\n",
-						  sofia_private->gateway->name, o->o_type);
+
+	if (!(gateway = sofia_reg_find_gateway(sofia_private->gateway_name))) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Gateway information missing\n");
 		return;
+	}
+
+
+	/* Find the subscription if one exists */
+	if (!(gw_sub_ptr = sofia_find_gateway_subscription(gateway, o->o_type))) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Could not find gateway subscription.  Gateway: %s.  Subscription Event: %s\n",
+						  gateway->name, o->o_type);
+		goto end;
 	}
 
 	/* Update the subscription status for the subscription */
@@ -4212,19 +4223,22 @@ void sofia_presence_handle_sip_r_subscribe(int status,
 	default:
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "status (%d) != 200, updated state to SUB_STATE_FAILED.\n", status);
 		gw_sub_ptr->state = SUB_STATE_FAILED;
+		gw_sub_ptr->expires = switch_epoch_time_now(NULL);
+		gw_sub_ptr->retry = switch_epoch_time_now(NULL);
 
-		if (sofia_private) {
-			if (gw_sub_ptr->nh) {
-				nua_handle_bind(gw_sub_ptr->nh, NULL);
-				nua_handle_destroy(gw_sub_ptr->nh);
-				gw_sub_ptr->nh = NULL;
-			}
-		} else {
+		if (!sofia_private) {
 			nua_handle_destroy(nh);
 		}
-
+		
 		break;
 	}
+
+ end:
+
+	if (gateway) {
+		sofia_reg_release_gateway(gateway);
+	}
+
 }
 
 
@@ -4658,7 +4672,11 @@ void sofia_presence_handle_sip_i_message(int status,
 
  end:
 
-	nua_respond(nh, SIP_202_ACCEPTED, NUTAG_WITH_THIS_MSG(de->data->e_msg), TAG_END());
+	if (sofia_test_pflag(profile, PFLAG_MESSAGES_RESPOND_200_OK)) {
+		nua_respond(nh, SIP_200_OK, NUTAG_WITH_THIS_MSG(de->data->e_msg), TAG_END());
+	} else {
+		nua_respond(nh, SIP_202_ACCEPTED, NUTAG_WITH_THIS_MSG(de->data->e_msg), TAG_END());
+	}
 
 }
 

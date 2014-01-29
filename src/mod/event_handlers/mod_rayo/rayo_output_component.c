@@ -1,6 +1,6 @@
 /*
  * mod_rayo for FreeSWITCH Modular Media Switching Software Library / Soft-Switch Application
- * Copyright (C) 2013, Grasshopper
+ * Copyright (C) 2013-2014, Grasshopper
  *
  * Version: MPL 1.1
  *
@@ -47,6 +47,8 @@ struct output_component {
 	switch_bool_t start_paused;
 	/** true if stopped */
 	int stop;
+	/** output renderer to use */
+	const char *renderer;
 };
 
 #define OUTPUT_FINISH "finish", RAYO_OUTPUT_COMPLETE_NS
@@ -71,6 +73,7 @@ static struct rayo_component *create_output_component(struct rayo_actor *actor, 
 	output_component->repeat_times = iks_find_int_attrib(output, "repeat-times");
 	output_component->max_time = iks_find_int_attrib(output, "max-time");
 	output_component->start_paused = iks_find_bool_attrib(output, "start-paused");
+	output_component->renderer = iks_find_attrib(output, "renderer");
 
 	return (struct rayo_component *)output_component;
 }
@@ -102,15 +105,19 @@ static iks *start_call_output(struct rayo_component *component, switch_core_sess
 	if (switch_ivr_displace_session(session, stream.data, 0, "m") == SWITCH_STATUS_SUCCESS) {
 		RAYO_UNLOCK(component);
 	} else {
-		if (OUTPUT_COMPONENT(component)->document) {
-			iks_delete(OUTPUT_COMPONENT(component)->document);
-		}
-		if (switch_channel_get_state(switch_core_session_get_channel(session)) >= CS_HANGUP) {
-			rayo_component_send_complete(component, COMPONENT_COMPLETE_HANGUP);
-			component = NULL;
+		if (component->complete) {
+			/* component is already destroyed */
+			RAYO_UNLOCK(component);
 		} else {
-			rayo_component_send_complete(component, COMPONENT_COMPLETE_ERROR);
-			component = NULL;
+			/* need to destroy component */
+			if (OUTPUT_COMPONENT(component)->document) {
+				iks_delete(OUTPUT_COMPONENT(component)->document);
+			}
+			if (switch_channel_get_state(switch_core_session_get_channel(session)) >= CS_HANGUP) {
+				rayo_component_send_complete(component, COMPONENT_COMPLETE_HANGUP);
+			} else {
+				rayo_component_send_complete(component, COMPONENT_COMPLETE_ERROR);
+			}
 		}
 	}
 	switch_safe_free(stream.data);
@@ -178,6 +185,9 @@ static iks *start_mixer_output_component(struct rayo_actor *mixer, struct rayo_m
 		stream.write_function(&stream, ",timeout=%i", OUTPUT_COMPONENT(component)->max_time * 1000);
 	}
 	stream.write_function(&stream, "}fileman://rayo://%s", RAYO_JID(component));
+
+	/* acknowledge command */
+	rayo_component_send_start(component, iq);
 
 	rayo_component_api_execute_async(component, "conference", stream.data);
 
@@ -402,7 +412,13 @@ static switch_status_t next_file(switch_file_handle_t *handle)
 		if (speak) {
 			/* <speak> is child node */
 			char *ssml_str = iks_string(NULL, speak);
-			context->ssml = switch_mprintf("ssml://%s", ssml_str);
+			if (zstr(output->renderer)) {
+				/* FS must parse the SSML */
+				context->ssml = switch_mprintf("ssml://%s", ssml_str);
+			} else {
+				/* renderer will parse the SSML */
+				context->ssml = switch_mprintf("tts://%s||%s", output->renderer, ssml_str);
+			}
 			iks_free(ssml_str);
 		} else if (iks_has_children(context->cur_doc)) {
 			/* check if <speak> is in CDATA */
@@ -415,7 +431,13 @@ static switch_status_t next_file(switch_file_handle_t *handle)
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Missing <document> CDATA\n");
 				return SWITCH_STATUS_FALSE;
 			}
-			context->ssml = switch_mprintf("ssml://%s", ssml_str);
+			if (zstr(output->renderer)) {
+				/* FS must parse the SSML */
+				context->ssml = switch_mprintf("ssml://%s", ssml_str);
+			} else {
+				/* renderer will parse the SSML */
+				context->ssml = switch_mprintf("tts://%s||%s", output->renderer, ssml_str);
+			}
 		} else {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Missing <speak>\n");
 			return SWITCH_STATUS_FALSE;
@@ -494,9 +516,26 @@ static switch_status_t rayo_file_close(switch_file_handle_t *handle)
 		if (output->stop) {
 			rayo_component_send_complete(context->component, COMPONENT_COMPLETE_STOP);
 		} else {
-			rayo_component_send_complete(context->component, OUTPUT_FINISH);
+			if (!strcmp(RAYO_ACTOR(context->component)->type, RAT_CALL_COMPONENT)) {
+				/* call output... check for hangup */
+				switch_core_session_t *session = switch_core_session_locate(context->component->parent->id);
+				if (session) {
+					if (switch_channel_get_state(switch_core_session_get_channel(session)) >= CS_HANGUP) {
+						rayo_component_send_complete(context->component, COMPONENT_COMPLETE_HANGUP);
+					} else {
+						rayo_component_send_complete(context->component, OUTPUT_FINISH);
+					}
+					switch_core_session_rwunlock(session);
+				} else {
+					/* session is gone */
+					rayo_component_send_complete(context->component, COMPONENT_COMPLETE_HANGUP);
+				}
+			} else {
+				/* mixer output... finished */
+				rayo_component_send_complete(context->component, OUTPUT_FINISH);
+			}
 		}
-		/* TODO hangup / timed out */
+		/* TODO timed out */
 
 		/* cleanup internals */
 		switch_safe_free(context->ssml);

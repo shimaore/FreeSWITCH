@@ -107,7 +107,7 @@ getlibs () {
   getlib http://files.freeswitch.org/downloads/libs/pocketsphinx-0.7.tar.gz
   getlib http://files.freeswitch.org/downloads/libs/communicator_semi_6000_20080321.tar.gz
   getlib http://files.freeswitch.org/downloads/libs/celt-0.10.0.tar.gz
-  getlib http://files.freeswitch.org/downloads/libs/opus-1.0.2.tar.gz
+  getlib http://files.freeswitch.org/downloads/libs/opus-1.1.tar.gz
   getlib http://files.freeswitch.org/downloads/libs/openldap-2.4.19.tar.gz
   getlib http://download.zeromq.org/zeromq-2.1.9.tar.gz \
     || getlib http://download.zeromq.org/historic/zeromq-2.1.9.tar.gz
@@ -208,12 +208,13 @@ EOF
 create_dsc () {
   {
     set -e
-    local OPTIND OPTARG modules_conf="" modules_list="" speed="normal" zl=9
-    while getopts 'f:m:s:z:' o "$@"; do
+    local OPTIND OPTARG modules_conf="" modules_list="" speed="normal" suite_postfix="" suite_postfix_p=false zl=9
+    while getopts 'f:m:s:u:z:' o "$@"; do
       case "$o" in
         f) modules_conf="$OPTARG";;
         m) modules_list="$OPTARG";;
         s) speed="$OPTARG";;
+        u) suite_postfix="$OPTARG"; suite_postfix_p=true; ;;
         z) zl="$OPTARG";;
       esac
     done
@@ -222,6 +223,7 @@ create_dsc () {
     local suite="$(find_suite $distro)"
     local orig_ver="$(echo "$orig" | sed -e 's/^.*_//' -e 's/\.orig\.tar.*$//')"
     local dver="${orig_ver}-1~${distro}+1"
+    $suite_postfix_p && { suite="${distro}${suite_postfix}"; }
     [ -x "$(which dch)" ] \
       || err "package devscripts isn't installed"
     if [ -n "$modules_conf" ]; then
@@ -317,20 +319,23 @@ build_debs () {
 
 build_all () {
   local OPTIND OPTARG
-  local orig_opts="" dsc_opts="" deb_opts=""
-  local archs="" distros="" orig="" par=false
-  while getopts 'a:bc:df:jm:no:s:v:z:' o "$@"; do
+  local orig_opts="" dsc_opts="" deb_opts="" modlist=""
+  local archs="" distros="" orig="" depinst=false par=false
+  while getopts 'a:bc:df:ijl:m:no:s:u:v:z:' o "$@"; do
     case "$o" in
       a) archs="$archs $OPTARG";;
       b) orig_opts="$orig_opts -b";;
       c) distros="$distros $OPTARG";;
       d) deb_opts="$deb_opts -d";;
       f) dsc_opts="$dsc_opts -f$OPTARG";;
+      i) depinst=true;;
       j) par=true;;
+      l) modlist="$OPTARG";;
       m) orig_opts="$orig_opts -m$OPTARG"; dsc_opts="$dsc_opts -m$OPTARG";;
       n) orig_opts="$orig_opts -n";;
       o) orig="$OPTARG";;
       s) dsc_opts="$dsc_opts -s$OPTARG";;
+      u) dsc_opts="$dsc_opts -u$OPTARG";;
       v) orig_opts="$orig_opts -v$OPTARG";;
       z) orig_opts="$orig_opts -z$OPTARG"; dsc_opts="$dsc_opts -z$OPTARG";;
     esac
@@ -338,6 +343,15 @@ build_all () {
   shift $(($OPTIND-1))
   [ -n "$archs" ] || archs="amd64 i386"
   [ -n "$distros" ] || distros="sid jessie wheezy squeeze"
+  ! $depinst || aptitude install -y \
+    rsync git less cowbuilder ccache \
+    devscripts equivs build-essential
+  [ -n "$orig" ] || orig="$(create_orig $orig_opts HEAD | tail -n1)"
+  if [ -n "$modlist" ]; then
+    local modtmp="$(mktemp /tmp/modules-XXXXXXXXXX.conf)"
+    > $modtmp
+    for m in "$modlist"; do printf '%s\n' "$m" >> $modtmp; done
+    dsc_opts="$dsc_opts -f${modtmp}"; fi
   [ -n "$orig" ] || orig="$(create_orig $orig_opts HEAD | tail -n1)"
   mkdir -p ../log
   > ../log/changes
@@ -366,6 +380,7 @@ build_all () {
     done
     ! $par || wait
   fi
+  [ -z "$modlist" ] || rm -f $modtmp
   trap - EXIT
   cat ../log/changes
 }
@@ -392,7 +407,9 @@ commands:
     -d Enable cowbuilder debug hook
     -f <modules.conf>
       Build only modules listed in this file
+    -i Auto install build deps on host system
     -j Build debs in parallel
+    -l <modules>
     -m [ quicktest | non-dfsg ]
       Choose custom list of modules to build
     -n Nightly build
@@ -400,6 +417,8 @@ commands:
       Specify existing .orig.tar.xz file
     -s [ paranoid | reckless ]
       Set FS bootstrap/build -j flags
+    -u <suite-postfix>
+      Specify a custom suite postfix
     -v Set version
     -z Set compression level
 
@@ -421,6 +440,8 @@ commands:
       Choose custom list of modules to build
     -s [ paranoid | reckless ]
       Set FS bootstrap/build -j flags
+    -u <suite-postfix>
+      Specify a custom suite postfix
     -z Set compression level
 
   create-orig <treeish>
@@ -455,4 +476,3 @@ case "$cmd" in
   create-orig) create_orig "$@" ;;
   *) usage ;;
 esac
-

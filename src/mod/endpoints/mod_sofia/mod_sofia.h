@@ -168,7 +168,6 @@ typedef struct sofia_dispatch_event_s {
 
 struct sofia_private {
 	char uuid[SWITCH_UUID_FORMATTED_LENGTH + 1];
-	sofia_gateway_t *gateway;
 	char gateway_name[256];
 	char auth_gateway_name[256];
 	int destroy_nh;
@@ -286,6 +285,7 @@ typedef enum {
 	PFLAG_TCP_KEEPALIVE,
 	PFLAG_TCP_PINGPONG,
 	PFLAG_TCP_PING2PONG,
+	PFLAG_MESSAGES_RESPOND_200_OK,
 	/* No new flags below this line */
 	PFLAG_MAX
 } PFLAGS;
@@ -459,6 +459,7 @@ typedef enum {
 
 struct sofia_gateway_subscription {
 	sofia_gateway_t *gateway;
+	sofia_private_t *sofia_private;
 	nua_handle_t *nh;
 	char *expires_str;
 	char *event;				/* eg, 'message-summary' to subscribe to MWI events */

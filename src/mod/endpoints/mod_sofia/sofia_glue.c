@@ -2735,10 +2735,8 @@ switch_status_t sofia_glue_do_invite(switch_core_session_t *session)
 		tech_pvt->session_refresher = nua_no_refresher;
 	}
 
-	if (tech_pvt->local_sdp_str) {
-		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(tech_pvt->session), SWITCH_LOG_DEBUG,
-						  "Local SDP:\n%s\n", tech_pvt->local_sdp_str);
-	}
+	switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(tech_pvt->session), SWITCH_LOG_DEBUG, "%s sending invite version: %s\nLocal SDP:\n%s\n", 
+					  switch_channel_get_name(tech_pvt->channel), SWITCH_VERSION_FULL_HUMAN, tech_pvt->local_sdp_str ? tech_pvt->local_sdp_str : "NO SDP PRESENT\n");
 
 
 	if (sofia_use_soa(tech_pvt)) {
@@ -4432,6 +4430,7 @@ int sofia_glue_toggle_hold(private_object_t *tech_pvt, int sendonly)
 		sofia_clear_flag_locked(tech_pvt, TFLAG_HOLD_LOCK);
 
 		if (sofia_test_flag(tech_pvt, TFLAG_SIP_HOLD)) {
+			const char *val;
 
 			switch_yield(250000);
 
@@ -4450,6 +4449,21 @@ int sofia_glue_toggle_hold(private_object_t *tech_pvt, int sendonly)
 					switch_channel_stop_broadcast(b_channel);
 					switch_channel_wait_for_flag(b_channel, CF_BROADCAST, SWITCH_FALSE, 5000, NULL);
 				}
+			}
+
+			if (!sofia_test_pflag(tech_pvt->profile, PFLAG_DISABLE_RTP_AUTOADJ) && !switch_channel_test_flag(tech_pvt->channel, CF_PROXY_MODE) &&
+				!((val = switch_channel_get_variable(tech_pvt->channel, "disable_rtp_auto_adjust")) && switch_true(val))) {
+				/* Reactivate the NAT buster flag. */
+
+
+				if (tech_pvt->rtp_session) {
+					switch_rtp_set_flag(tech_pvt->rtp_session, SWITCH_RTP_FLAG_AUTOADJ);
+				}
+
+				if (tech_pvt->video_rtp_session) {
+					switch_rtp_set_flag(tech_pvt->video_rtp_session, SWITCH_RTP_FLAG_AUTOADJ);
+				}
+
 			}
 
 			sofia_clear_flag_locked(tech_pvt, TFLAG_SIP_HOLD);
@@ -5371,6 +5385,7 @@ uint8_t sofia_glue_negotiate_sdp(switch_core_session_t *session, const char *r_s
 					switch_channel_set_variable(tech_pvt->channel, SWITCH_REMOTE_MEDIA_IP_VARIABLE, tech_pvt->remote_sdp_audio_ip);
 					switch_channel_set_variable(tech_pvt->channel, SWITCH_REMOTE_MEDIA_PORT_VARIABLE, tmp);
 					tech_pvt->audio_recv_pt = (switch_payload_t)map->rm_pt;
+					tech_pvt->channels = map->rm_params ? atoi(map->rm_params) : 1;
 
 					if (!strcasecmp((char *) map->rm_encoding, "opus")) {
 						if (tech_pvt->channels == 1) {
@@ -5671,7 +5686,10 @@ char *sofia_glue_get_path_from_contact(char *buf)
 		}
 	}
 
-	if (!path) return NULL;
+	if (!path) {
+		free(contact);
+		return NULL;
+	}
 
 	if ((e = strrchr(path, ';'))) {
 		*e = '\0';
@@ -6111,10 +6129,6 @@ int sofia_recover_callback(switch_core_session_t *session)
 	if ((tmp = switch_channel_get_variable(channel, "srtp_remote_audio_crypto_key"))) {
 		tech_pvt->remote_crypto_key = switch_core_session_strdup(session, tmp);
 		sofia_set_flag(tech_pvt, TFLAG_CRYPTO_RECOVER);
-	}
-
-	if ((tmp = switch_channel_get_variable(channel, "sip_local_sdp_str"))) {
-		tech_pvt->local_sdp_str = switch_core_session_strdup(session, tmp);
 	}
 
 	if ((tmp = switch_channel_get_variable(channel, SWITCH_R_SDP_VARIABLE))) {

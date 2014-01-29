@@ -41,6 +41,9 @@
 #define TRY_CODE(code) do { status = code; if (status != SWITCH_STATUS_SUCCESS && status != SWITCH_STATUS_BREAK) { goto end; } break;} while(status)
 #endif
 
+
+#define xml_safe_free(_x) if (_x) switch_xml_free(_x); _x = NULL
+
 SWITCH_MODULE_LOAD_FUNCTION(mod_voicemail_load);
 SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_voicemail_shutdown);
 SWITCH_MODULE_DEFINITION(mod_voicemail, mod_voicemail_load, mod_voicemail_shutdown, NULL);
@@ -1346,16 +1349,16 @@ static int listen_callback(void *pArg, int argc, char **argv, char **columnNames
 
 static char *resolve_id(const char *myid, const char *domain_name, const char *action)
 {
-	switch_xml_t xx_user, xx_domain, xx_domain_root;
+	switch_xml_t xx_user;
 	switch_event_t *params;
 	char *ret = (char *) myid;
 
 	switch_event_create(&params, SWITCH_EVENT_GENERAL);
 	switch_event_add_header_string(params, SWITCH_STACK_BOTTOM, "action", action);
 
-	if (switch_xml_locate_user("id", myid, domain_name, NULL, &xx_domain_root, &xx_domain, &xx_user, NULL, params) == SWITCH_STATUS_SUCCESS) {
+	if (switch_xml_locate_user_merged("id:number-alias", myid, domain_name, NULL, &xx_user, params) == SWITCH_STATUS_SUCCESS) {
 		ret = strdup(switch_xml_attr(xx_user, "id"));
-		switch_xml_free(xx_domain_root);
+		switch_xml_free(xx_user);
 	}
 
 	switch_event_destroy(&params);
@@ -1708,9 +1711,7 @@ static switch_status_t listen_file(switch_core_session_t *session, vm_profile_t 
 
 				while (!ok) {
 
-					if (x_user) {
-						switch_xml_free(x_user);
-					}
+					xml_safe_free(x_user);
 
 					switch_snprintf(macro_buf, sizeof(macro_buf), "phrase:%s:%s", VM_FORWARD_MESSAGE_ENTER_EXTENSION_MACRO, profile->terminator_key);
 					vm_cc[0] = '\0';
@@ -1763,8 +1764,9 @@ static switch_status_t listen_file(switch_core_session_t *session, vm_profile_t 
 							}
 						}
 					}
-				
-					switch_xml_free(x_user);
+
+					xml_safe_free(x_user);
+
 					break;
 				}
 
@@ -1953,9 +1955,6 @@ static void update_mwi(vm_profile_t *profile, const char *id, const char *domain
 	switch_event_fire(&message_event);
 }
 
-
-#define FREE_DOMAIN_ROOT() if (x_user) switch_xml_free(x_user); x_user = NULL
-
 static void voicemail_check_main(switch_core_session_t *session, vm_profile_t *profile, const char *domain_name, const char *id, int auth, const char *uuid_in)
 {
 	vm_check_state_t vm_check_state = VM_CHECK_START;
@@ -2026,7 +2025,7 @@ static void voicemail_check_main(switch_core_session_t *session, vm_profile_t *p
 				mypass = NULL;
 				myfolder = "inbox";
 				vm_check_state = VM_CHECK_AUTH;
-				FREE_DOMAIN_ROOT();
+				xml_safe_free(x_user);
 			}
 			break;
 		case VM_CHECK_FOLDER_SUMMARY:
@@ -2591,7 +2590,7 @@ static void voicemail_check_main(switch_core_session_t *session, vm_profile_t *p
 				switch_channel_event_set_data(channel, event);
 				switch_event_fire(&event);
 
-				FREE_DOMAIN_ROOT();
+				xml_safe_free(x_user);
 
 				if (auth) {
 					if (!dir_path) {
@@ -2635,7 +2634,7 @@ static void voicemail_check_main(switch_core_session_t *session, vm_profile_t *p
 
 			  failed:
 
-				FREE_DOMAIN_ROOT();
+				xml_safe_free(x_user);
 
 				status = switch_ivr_phrase_macro(session, VM_FAIL_AUTH_MACRO, NULL, NULL, NULL);
 				myid = id;
@@ -2678,11 +2677,7 @@ static void voicemail_check_main(switch_core_session_t *session, vm_profile_t *p
 		}
 	}
 
-	if (x_user) {
-		switch_xml_free(x_user);
-		x_user = NULL;
-	}
-
+	xml_safe_free(x_user);
 }
 
 
@@ -3689,10 +3684,7 @@ static switch_status_t voicemail_leave_main(switch_core_session_t *session, vm_p
 
   end:
 
-	if (x_user) {
-		switch_xml_free(x_user);
-		x_user = NULL;
-	}
+	xml_safe_free(x_user);
 
 	switch_safe_free(file_path);
 
@@ -5744,7 +5736,8 @@ SWITCH_STANDARD_API(vm_fsdb_auth_login_function)
 		}
 	}
 
-	switch_xml_free(x_user);
+	xml_safe_free(x_user);
+
 	profile_rwunlock(profile);
 done:
 	switch_core_destroy_memory_pool(&pool);

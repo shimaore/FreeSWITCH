@@ -29,6 +29,7 @@ Description: Caller ID name lookup
 Module: applications/mod_cluechoo
 Description: Clue Choo
  This demo module renders a Clue Choo train on the FreeSWITCH console.
+Build-Depends: libncurses5-dev
 
 Module: applications/mod_commands
 Description: Command module
@@ -536,6 +537,8 @@ Module: formats/mod_vlc
 Description: VLC streaming
  This module provides VLC streaming.
 Build-Depends: libvlc-dev (>= 2.0.0)
+Depends: vlc-nox
+Suggests: vlc-dbg
 Distro-Conflicts: squeeze
 
 ## mod/languages
