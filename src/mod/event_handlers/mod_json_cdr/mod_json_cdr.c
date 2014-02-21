@@ -33,6 +33,7 @@
 #include <sys/stat.h>
 #include <switch.h>
 #include <switch_curl.h>
+#include <switch_json.h>
 
 #define MAX_URLS 20
 #define MAX_ERR_DIRS 20
@@ -72,6 +73,7 @@ static struct {
 	switch_memory_pool_t *pool;
 	switch_event_node_t *node;
 	int encode_values;
+	char* id;
 } globals;
 
 SWITCH_MODULE_LOAD_FUNCTION(mod_json_cdr_load);
@@ -201,6 +203,8 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 	switch_status_t status = SWITCH_STATUS_FALSE;
 	int is_b;
 	const char *a_prefix = "";
+	char *id = NULL;
+	int free_id = 0;
 
 	if (globals.shutdown) {
 		return SWITCH_STATUS_SUCCESS;
@@ -222,6 +226,15 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 		return SWITCH_STATUS_FALSE;
 	}
 	
+	if(globals.id) {
+		id = switch_channel_expand_variables(channel,globals.id);
+		free_id = id != globals.id;
+	} else {
+		id = switch_core_session_get_uuid(session);
+	}
+
+	cJSON_AddItemToObject(json_cdr, "_id", cJSON_CreateString(id));
+
 	json_text = cJSON_PrintUnformatted(json_cdr);
 
 	if (!json_text) {
@@ -236,7 +249,7 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 	}
 
 	if (!zstr(logdir) && (globals.log_http_and_disk || !globals.url_count)) {
-		path = switch_mprintf("%s%s%s%s.cdr.json", logdir, SWITCH_PATH_SEPARATOR, a_prefix, switch_core_session_get_uuid(session));
+		path = switch_mprintf("%s%s%s%s.cdr.json", logdir, SWITCH_PATH_SEPARATOR, a_prefix, id);
 		switch_thread_rwlock_unlock(globals.log_path_lock);
 		if (path) {
 #ifdef _MSC_VER
@@ -346,7 +359,7 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 				switch_yield(globals.delay * 1000000);
 			}
 
-			destUrl = switch_mprintf("%s?uuid=%s", globals.urls[globals.url_index], switch_core_session_get_uuid(session));
+			destUrl = switch_mprintf("%s?uuid=%s", globals.urls[globals.url_index], id);
 			switch_curl_easy_setopt(curl_handle, CURLOPT_URL, destUrl);
 
 			if (!strncasecmp(destUrl, "https", 5)) {
@@ -390,7 +403,7 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 
 		for (err_dir_index = 0; err_dir_index < globals.err_dir_count; err_dir_index++) {
 			switch_thread_rwlock_rdlock(globals.log_path_lock);
-			path = switch_mprintf("%s%s%s%s.cdr.json", globals.err_log_dir[err_dir_index], SWITCH_PATH_SEPARATOR, a_prefix, switch_core_session_get_uuid(session));
+			path = switch_mprintf("%s%s%s%s.cdr.json", globals.err_log_dir[err_dir_index], SWITCH_PATH_SEPARATOR, a_prefix, id);
 			switch_thread_rwlock_unlock(globals.log_path_lock);
 			if (path) {
 #ifdef _MSC_VER
@@ -432,6 +445,9 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 	}
 	if (curl_json_text != json_text) {
 		switch_safe_free(curl_json_text);
+	}
+	if ( free_id ) {
+		switch_safe_free(id);
 	}
 	
 	cJSON_Delete(json_cdr);
@@ -590,6 +606,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_json_cdr_load)
 				}
 			} else if (!strcasecmp(var, "encode-values") && !zstr(val)) {
 				globals.encode_values = switch_true(val) ? ENCODING_DEFAULT : ENCODING_NONE;
+			} else if (!strcasecmp(var, "id") && !zstr(val)) {
+				globals.id = switch_core_strdup(globals.pool, val);
 			}
 
 		}
