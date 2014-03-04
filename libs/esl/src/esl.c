@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007-2012, Anthony Minessale II
+ * Copyright (c) 2007-2014, Anthony Minessale II
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -1233,7 +1233,7 @@ static esl_ssize_t handle_recv(esl_handle_t *handle, void *data, esl_size_t data
 			} else if ((activity & ESL_POLL_READ)) {
 				if (!(activity = recv(handle->sock, data, datalen, 0))) {
 					activity = -1;
-				} else if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+				} else if (activity < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
 					activity = 0;
 				}
 			}

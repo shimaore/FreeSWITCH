@@ -1478,10 +1478,8 @@ static void our_sofia_event_callback(nua_event_t event,
 				sofia_gateway_t *gateway = NULL;
 
 				if ((gateway = sofia_reg_find_gateway(sofia_private->gateway_name))) {
-					nua_handle_bind(gateway->nh, NULL);
-					gateway->sofia_private = NULL;
-					nua_handle_destroy(gateway->nh);
-					gateway->nh = NULL;
+					gateway->state = REG_STATE_FAILED;
+					gateway->failure_status = status;
 					sofia_reg_release_gateway(gateway);
 				}
 			} else {
@@ -2417,7 +2415,7 @@ void *SWITCH_THREAD_FUNC sofia_profile_thread_run(switch_thread_t *thread, void 
 		goto end;
 	}
 
-	supported = switch_core_sprintf(profile->pool, "%s%s%sprecondition, path, replaces", use_100rel ? "100rel, " : "", use_timer ? "timer, " : "", use_rfc_5626 ? "outbound, " : "");
+	supported = switch_core_sprintf(profile->pool, "%s%s%spath, replaces", use_100rel ? "precondition, 100rel, " : "", use_timer ? "timer, " : "", use_rfc_5626 ? "outbound, " : "");
 
 	if (sofia_test_pflag(profile, PFLAG_AUTO_NAT) && switch_nat_get_type()) {
 		if ( (! sofia_test_pflag(profile, PFLAG_TLS) || ! profile->tls_only) && switch_nat_add_mapping(profile->sip_port, SWITCH_NAT_UDP, NULL, SWITCH_FALSE) == SWITCH_STATUS_SUCCESS) {
@@ -2463,6 +2461,8 @@ void *SWITCH_THREAD_FUNC sofia_profile_thread_run(switch_thread_t *thread, void 
 							  TAG_IF(sofia_test_pflag(profile, PFLAG_TLS) && profile->tls_verify_in_subjects,
 									  TPTAG_TLS_VERIFY_SUBJECTS(profile->tls_verify_in_subjects)),
 							  TAG_IF(sofia_test_pflag(profile, PFLAG_TLS),
+									 TPTAG_TLS_CIPHERS(profile->tls_ciphers)),
+							  TAG_IF(sofia_test_pflag(profile, PFLAG_TLS),
 									 TPTAG_TLS_VERSION(profile->tls_version)),
 							  TAG_IF(sofia_test_pflag(profile, PFLAG_TLS) && profile->tls_timeout,
 									 TPTAG_TLS_TIMEOUT(profile->tls_timeout)),
@@ -2478,6 +2478,8 @@ void *SWITCH_THREAD_FUNC sofia_profile_thread_run(switch_thread_t *thread, void 
 									 TPTAG_PINGPONG(profile->tcp_ping2pong)),
 							  TAG_IF(sofia_test_pflag(profile, PFLAG_DISABLE_SRV503),
 									 NTATAG_SRV_503(0)),									 
+							  TAG_IF(sofia_test_pflag(profile, PFLAG_SOCKET_TCP_KEEPALIVE),
+									 TPTAG_KEEPALIVE(profile->socket_tcp_keepalive)),
 							  TAG_IF(sofia_test_pflag(profile, PFLAG_TCP_KEEPALIVE),
 									 TPTAG_KEEPALIVE(profile->tcp_keepalive)),									 
 							  NTATAG_DEFAULT_PROXY(profile->outbound_proxy),
@@ -3404,8 +3406,8 @@ static void config_sofia_profile_urls(sofia_profile_t * profile)
 	}
 	
 	if (profile->bind_params) {
-		char *bindurl = profile->bindurl;
-		profile->bindurl = switch_core_sprintf(profile->pool, "%s;%s", bindurl, profile->bind_params);
+		char *bindurl = switch_core_sprintf(profile->pool, "%s;%s", profile->bindurl, profile->bind_params);
+		profile->bindurl = bindurl;
 	}
 	
 	/*
@@ -3658,7 +3660,10 @@ switch_status_t config_sofia(sofia_config_t reload, char *profile_name)
 					profile->sip_force_expires = 0;
 					profile->sip_expires_max_deviation = 0;
 					profile->sip_subscription_max_deviation = 0;
-					profile->tls_version = 0;
+					profile->tls_ciphers = "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH";
+					profile->tls_version = SOFIA_TLS_VERSION_TLSv1;
+					profile->tls_version |= SOFIA_TLS_VERSION_TLSv1_1;
+					profile->tls_version |= SOFIA_TLS_VERSION_TLSv1_2;
 					profile->tls_timeout = 300;
 					profile->mflags = MFLAG_REFER | MFLAG_REGISTER;
 					profile->server_rport_level = 1;
@@ -3724,6 +3729,9 @@ switch_status_t config_sofia(sofia_config_t reload, char *profile_name)
 					} else if (!strcasecmp(var, "sip-capture") && switch_true(val)) {
 						sofia_set_flag(profile, TFLAG_CAPTURE);
 						nua_set_params(profile->nua, TPTAG_CAPT(mod_sofia_globals.capture_server), TAG_END());						
+					} else if (!strcasecmp(var, "socket-tcp-keepalive") && !zstr(val)) {
+						profile->socket_tcp_keepalive = atoi(val);
+						sofia_set_pflag(profile, PFLAG_SOCKET_TCP_KEEPALIVE);
 					} else if (!strcasecmp(var, "tcp-keepalive") && !zstr(val)) {
 						profile->tcp_keepalive = atoi(val);
 						sofia_set_pflag(profile, PFLAG_TCP_KEEPALIVE);
@@ -4578,12 +4586,30 @@ switch_status_t config_sofia(sofia_config_t reload, char *profile_name)
 						profile->tls_passphrase = switch_core_strdup(profile->pool, val);
 					} else if (!strcasecmp(var, "tls-verify-in-subjects")) {
 						profile->tls_verify_in_subjects_str = switch_core_strdup(profile->pool, val);
+					} else if (!strcasecmp(var, "tls-ciphers")) {
+						profile->tls_ciphers = switch_core_strdup(profile->pool, val);
 					} else if (!strcasecmp(var, "tls-version")) {
-
-						if (!strcasecmp(val, "tlsv1")) {
-							profile->tls_version = 1;
-						} else {
-							profile->tls_version = 0;
+						char *ps = val, *pe;
+						profile->tls_version = 0;
+						while (1) {
+							int n;
+							pe = strchr(ps,',');
+							if (!pe && !(pe = memchr(ps,0,1024))) break;
+							n = pe-ps;
+							if (n==5 && !strncasecmp(ps, "sslv2", n))
+								profile->tls_version |= SOFIA_TLS_VERSION_SSLv2;
+							if (n==5 && !strncasecmp(ps, "sslv3", n))
+								profile->tls_version |= SOFIA_TLS_VERSION_SSLv3;
+							if (n==6 && !strncasecmp(ps, "sslv23", n))
+								profile->tls_version |= SOFIA_TLS_VERSION_SSLv2 | SOFIA_TLS_VERSION_SSLv3;
+							if (n==5 && !strncasecmp(ps, "tlsv1", n))
+								profile->tls_version |= SOFIA_TLS_VERSION_TLSv1;
+							if (n==7 && !strncasecmp(ps, "tlsv1.1", n))
+								profile->tls_version |= SOFIA_TLS_VERSION_TLSv1_1;
+							if (n==7 && !strncasecmp(ps, "tlsv1.2", n))
+								profile->tls_version |= SOFIA_TLS_VERSION_TLSv1_2;
+							ps=pe+1;
+							if (!*pe) break;
 						}
 					} else if (!strcasecmp(var, "tls-timeout")) {
 						int v = atoi(val);
