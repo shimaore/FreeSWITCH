@@ -821,11 +821,11 @@ void sofia_send_callee_id(switch_core_session_t *session, const char *name, cons
 		if (zstr(number)) {
 			number = caller_profile->caller_id_number;
 		}
-		
+#if 0
 		if (zstr(name)) {
 			name = number;
 		}
-		
+#endif
 		if (zstr(number)) {
 			name = number = "UNKNOWN";
 		}
@@ -837,11 +837,11 @@ void sofia_send_callee_id(switch_core_session_t *session, const char *name, cons
 		if (zstr(number)) {
 			number = caller_profile->callee_id_number;
 		}
-		
+#if 0
 		if (zstr(name)) {
 			name = number;
 		}
-		
+#endif
 		if (zstr(number)) {
 			number = caller_profile->destination_number;
 		}
