@@ -1,6 +1,6 @@
 /*
  * mod_rayo for FreeSWITCH Modular Media Switching Software Library / Soft-Switch Application
- * Copyright (C) 2013, Grasshopper
+ * Copyright (C) 2013-2014, Grasshopper
  *
  * Version: MPL 1.1
  *
@@ -129,7 +129,7 @@ static iks *start_sendfax_component(struct rayo_actor *call, struct rayo_message
 	}
 
 	/* does document exist? */
-	if (switch_file_exists(fax_document, pool) != SWITCH_STATUS_SUCCESS) {
+	if (switch_file_exists(fax_document, NULL) != SWITCH_STATUS_SUCCESS) {
 		return iks_new_error_detailed_printf(iq, STANZA_ERROR_BAD_REQUEST, "file not found: %s", fax_document);
 	}
 
@@ -177,7 +177,11 @@ static iks *start_sendfax_component(struct rayo_actor *call, struct rayo_message
 	/* create sendfax component */
 	switch_core_new_memory_pool(&pool);
 	sendfax_component = switch_core_alloc(pool, sizeof(*sendfax_component));
-	rayo_component_init((struct rayo_component *)sendfax_component, pool, RAT_CALL_COMPONENT, "sendfax", NULL, call, iks_find_attrib(iq, "from"));
+	sendfax_component = FAX_COMPONENT(rayo_component_init((struct rayo_component *)sendfax_component, pool, RAT_CALL_COMPONENT, "sendfax", NULL, call, iks_find_attrib(iq, "from")));
+	if (!sendfax_component) {
+		switch_core_destroy_memory_pool(&pool);
+		return iks_new_error_detailed(iq, STANZA_ERROR_INTERNAL_SERVER_ERROR, "Failed to create sendfax entity");
+	}
 
 	/* add channel variable so that fax component can be located from fax events */
 	switch_channel_set_variable(channel, "rayo_fax_jid", RAYO_JID(sendfax_component));
@@ -195,9 +199,6 @@ static iks *start_sendfax_component(struct rayo_actor *call, struct rayo_message
 	switch_channel_set_variable(channel, "fax_ecm_used", NULL);
 	switch_channel_set_variable(channel, "fax_local_station_id", NULL);
 	switch_channel_set_variable(channel, "fax_remote_station_id", NULL);
-
-	/* clear fax interrupt variable */
-	switch_channel_set_variable(switch_core_session_get_channel(session), "rayo_read_frame_interrupt", NULL);
 
 	rayo_call_set_faxing(RAYO_CALL(call), 1);
 
@@ -265,7 +266,11 @@ static iks *start_receivefax_component(struct rayo_actor *call, struct rayo_mess
 	/* create receivefax component */
 	switch_core_new_memory_pool(&pool);
 	receivefax_component = switch_core_alloc(pool, sizeof(*receivefax_component));
-	rayo_component_init((struct rayo_component *)receivefax_component, pool, RAT_CALL_COMPONENT, "receivefax", NULL, call, iks_find_attrib(iq, "from"));
+	receivefax_component = RECEIVEFAX_COMPONENT(rayo_component_init((struct rayo_component *)receivefax_component, pool, RAT_CALL_COMPONENT, "receivefax", NULL, call, iks_find_attrib(iq, "from")));
+	if (!receivefax_component) {
+		switch_core_destroy_memory_pool(&pool);
+		return iks_new_error_detailed(iq, STANZA_ERROR_INTERNAL_SERVER_ERROR, "Failed to create sendfax entity");
+	}
 	file_no = rayo_actor_seq_next(call);
 	receivefax_component->filename = switch_core_sprintf(pool, "%s%s%s-%d.tif",
 		globals.file_prefix, SWITCH_PATH_SEPARATOR, switch_core_session_get_uuid(session), file_no);
@@ -297,9 +302,6 @@ static iks *start_receivefax_component(struct rayo_actor *call, struct rayo_mess
 	switch_channel_set_variable(channel, "fax_ecm_used", NULL);
 	switch_channel_set_variable(channel, "fax_local_station_id", NULL);
 	switch_channel_set_variable(channel, "fax_remote_station_id", NULL);
-
-	/* clear fax interrupt variable */
-	switch_channel_set_variable(switch_core_session_get_channel(session), "rayo_read_frame_interrupt", NULL);
 
 	rayo_call_set_faxing(RAYO_CALL(call), 1);
 
@@ -375,7 +377,7 @@ static void insert_fax_metadata(switch_event_t *event, const char *name, iks *re
 static void on_execute_complete_event(switch_event_t *event)
 {
 	const char *application = switch_event_get_header(event, "Application");
-	
+
 	if (!zstr(application) && (!strcmp(application, "rxfax") || !strcmp(application, "txfax"))) {
 		int is_rxfax = !strcmp(application, "rxfax");
 		const char *uuid = switch_event_get_header(event, "Unique-ID");
@@ -386,26 +388,19 @@ static void on_execute_complete_event(switch_event_t *event)
 			iks *complete;
 			iks *fax;
 			int have_fax_document = 1;
-			switch_core_session_t *session;
 			switch_log_printf(SWITCH_CHANNEL_UUID_LOG(uuid), SWITCH_LOG_DEBUG, "Got result for %s\n", fax_jid);
-
-			/* clean up channel */
-			session = switch_core_session_locate(uuid);
-			if (session) {
-				switch_channel_set_variable(switch_core_session_get_channel(session), "rayo_read_frame_interrupt", NULL);
-				switch_core_session_rwunlock(session);
-			}
 
 			/* RX only: transfer HTTP document and delete local copy */
 			if (is_rxfax && RECEIVEFAX_COMPONENT(component)->http_put_after_receive && switch_file_exists(RECEIVEFAX_COMPONENT(component)->local_filename, RAYO_POOL(component)) == SWITCH_STATUS_SUCCESS) {
+				char *cmd = switch_core_sprintf(RAYO_POOL(component), "%s %s", RECEIVEFAX_COMPONENT(component)->filename, RECEIVEFAX_COMPONENT(component)->local_filename);
 				switch_stream_handle_t stream = { 0 };
 				SWITCH_STANDARD_STREAM(stream);
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "%s PUT fax to %s\n", RAYO_JID(component), RECEIVEFAX_COMPONENT(component)->filename);
-				switch_api_execute("http_put", RECEIVEFAX_COMPONENT(component)->filename, NULL, &stream);
+				switch_api_execute("http_put", cmd, NULL, &stream);
 				/* check if successful */
 				if (!zstr(stream.data) && strncmp(stream.data, "+OK", 3)) {
 					/* PUT failed */
-					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "%s PUT fax to %s failed: %s\n", RAYO_JID(component), RECEIVEFAX_COMPONENT(component)->filename, (char *)stream.data);
+					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "%s PUT fax %s to %s failed: %s\n", RAYO_JID(component), RECEIVEFAX_COMPONENT(component)->local_filename, RECEIVEFAX_COMPONENT(component)->filename, (char *)stream.data);
 					have_fax_document = 0;
 				}
 				switch_safe_free(stream.data)

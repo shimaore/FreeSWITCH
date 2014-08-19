@@ -500,6 +500,38 @@ uint32_t skinny_line_get_state(listener_t *listener, uint32_t line_instance, uin
 	return helper.call_state;
 }
 
+struct skinny_line_count_active_helper {
+	uint32_t count;
+};
+
+int skinny_line_count_active_callback(void *pArg, int argc, char **argv, char **columnNames)
+{
+	struct skinny_line_count_active_helper *helper = pArg;
+	helper->count++;
+	return 0;
+}
+
+uint32_t skinny_line_count_active(listener_t *listener)
+{
+	char *sql;
+	struct skinny_line_count_active_helper helper = {0};
+
+	switch_assert(listener);
+
+	helper.count = 0;
+	if ((sql = switch_mprintf(
+			"SELECT call_state FROM skinny_active_lines "
+			"WHERE device_name='%s' AND device_instance=%d "
+			"AND call_state != 2",
+			listener->device_name, listener->device_instance
+			))) {
+
+		skinny_execute_sql_callback(listener->profile, listener->profile->sql_mutex, sql, skinny_line_count_active_callback, &helper);
+		switch_safe_free(sql);
+	}
+
+	return helper.count;
+}
 
 switch_status_t skinny_tech_set_codec(private_t *tech_pvt, int force)
 {
@@ -843,6 +875,10 @@ switch_status_t channel_on_destroy(switch_core_session_t *session)
 		if (switch_core_codec_ready(&tech_pvt->write_codec)) {
 			switch_core_codec_destroy(&tech_pvt->write_codec);
 		}
+
+		if (switch_rtp_ready(tech_pvt->rtp_session)) {
+			switch_rtp_destroy(&tech_pvt->rtp_session);
+		}
 	}
 
 	switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "%s CHANNEL DESTROY\n", switch_channel_get_name(channel));
@@ -1109,7 +1145,7 @@ switch_status_t channel_answer_channel(switch_core_session_t *session)
 		/* Wait for media */
 		while(!switch_test_flag(tech_pvt, TFLAG_IO)) {
 			switch_cond_next();
-			if (++x > 1000) {
+			if (++x > 5000) {
 				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Wait tooo long to answer %s:%s\n",
 						switch_channel_get_variable(channel, "skinny_device_name"), switch_channel_get_variable(channel, "skinny_device_instance"));
 				return SWITCH_STATUS_FALSE;

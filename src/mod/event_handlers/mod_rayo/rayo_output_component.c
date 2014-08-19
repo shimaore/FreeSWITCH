@@ -68,17 +68,20 @@ static struct rayo_component *create_output_component(struct rayo_actor *actor, 
 
 	switch_core_new_memory_pool(&pool);
 	output_component = switch_core_alloc(pool, sizeof(*output_component));
-	rayo_component_init((struct rayo_component *)output_component, pool, type, "output", NULL, actor, client_jid);
+	output_component = OUTPUT_COMPONENT(rayo_component_init((struct rayo_component *)output_component, pool, type, "output", NULL, actor, client_jid));
+	if (output_component) {
+		output_component->document = iks_copy(output);
+		output_component->start_offset_ms = iks_find_int_attrib(output, "start-offset");
+		output_component->repeat_interval_ms = iks_find_int_attrib(output, "repeat-interval");
+		output_component->repeat_times = iks_find_int_attrib(output, "repeat-times");
+		output_component->max_time_ms = iks_find_int_attrib(output, "max-time");
+		output_component->start_paused = iks_find_bool_attrib(output, "start-paused");
+		output_component->renderer = switch_core_strdup(RAYO_POOL(output_component), iks_find_attrib_soft(output, "renderer"));
+	} else {
+		switch_core_destroy_memory_pool(&pool);
+	}
 
-	output_component->document = iks_copy(output);
-	output_component->start_offset_ms = iks_find_int_attrib(output, "start-offset");
-	output_component->repeat_interval_ms = iks_find_int_attrib(output, "repeat-interval");
-	output_component->repeat_times = iks_find_int_attrib(output, "repeat-times");
-	output_component->max_time_ms = iks_find_int_attrib(output, "max-time");
-	output_component->start_paused = iks_find_bool_attrib(output, "start-paused");
-	output_component->renderer = iks_find_attrib(output, "renderer");
-
-	return (struct rayo_component *)output_component;
+	return RAYO_COMPONENT(output_component);
 }
 
 /**
@@ -153,6 +156,9 @@ static iks *start_call_output_component(struct rayo_actor *call, struct rayo_mes
 	}
 
 	output_component = create_output_component(call, RAT_CALL_COMPONENT, output, iks_find_attrib(iq, "from"));
+	if (!output_component) {
+		return iks_new_error_detailed(iq, STANZA_ERROR_INTERNAL_SERVER_ERROR, "Failed to create output entity");
+	}
 	return start_call_output(output_component, session, output, iq);
 }
 
@@ -179,6 +185,9 @@ static iks *start_mixer_output_component(struct rayo_actor *mixer, struct rayo_m
 	}
 
 	component = create_output_component(mixer, RAT_MIXER_COMPONENT, output, iks_find_attrib(iq, "from"));
+	if (!component) {
+		return iks_new_error_detailed(iq, STANZA_ERROR_INTERNAL_SERVER_ERROR, "Failed to create output entity");
+	}
 
 	/* build conference command */
 	SWITCH_STANDARD_STREAM(stream);
@@ -810,7 +819,6 @@ static switch_status_t fileman_file_read(switch_file_handle_t *handle, void *dat
 
 	for (;;) {
 		int do_speed = 1;
-		int last_speed = -1;
 		size_t read_bytes = 0;
 
 		if (switch_test_flag(handle, SWITCH_FILE_PAUSE)) {
@@ -903,11 +911,6 @@ static switch_status_t fileman_file_read(switch_file_handle_t *handle, void *dat
 			handle->speed = -2;
 		}
 
-		if (fh->audio_buffer && last_speed > -1 && last_speed != handle->speed) {
-			/* speed has changed, flush the buffer */
-			switch_buffer_zero(fh->sp_audio_buffer);
-		}
-
 		if (switch_test_flag(fh, SWITCH_FILE_SEEK)) {
 			/* file position has changed flush the buffer */
 			switch_buffer_zero(fh->audio_buffer);
@@ -955,7 +958,6 @@ static switch_status_t fileman_file_read(switch_file_handle_t *handle, void *dat
 				switch_buffer_write(fh->sp_audio_buffer, bp, r_len * 2);
 				wrote_len += r_len;
 			}
-			last_speed = handle->speed;
 			continue;
 		}
 

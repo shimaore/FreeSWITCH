@@ -1278,6 +1278,7 @@ static switch_status_t create_file(switch_core_session_t *session, vm_profile_t 
 				goto end;
 			} else {
 				(void) vm_macro_get(session, VM_RECORD_FILE_CHECK_MACRO, key_buf, input, sizeof(input), 1, "", &term, profile->digit_timeout);
+				if (!switch_channel_ready(channel)) goto end;
 			}
 
 			if (!strcmp(input, profile->listen_file_key)) {
@@ -3356,7 +3357,6 @@ static switch_status_t voicemail_leave_main(switch_core_session_t *session, vm_p
 	switch_input_args_t args = { 0 };
 	char *vm_email = NULL;
 	char *vm_notify_email = NULL;
-	int send_mail = 0;
 	cc_t cc = { 0 };
 	char *read_flags = NORMAL_FLAG_STRING;
 	const char *operator_ext = switch_channel_get_variable(channel, "vm_operator_extension");
@@ -3418,8 +3418,6 @@ static switch_status_t voicemail_leave_main(switch_core_session_t *session, vm_p
 						skip_instructions = switch_true(val);
 					} else if (!strcasecmp(var, "email-addr")) {
 						email_addr = switch_core_session_strdup(session, val);
-					} else if (!strcasecmp(var, "vm-email-all-messages") && (send_main = switch_true(val))) {
-						send_mail++;
 					} else if (!strcasecmp(var, "vm-storage-dir")) {
 						vm_storage_dir = switch_core_session_strdup(session, val);
 					} else if (!strcasecmp(var, "vm-domain-storage-dir")) {
@@ -3428,8 +3426,6 @@ static switch_status_t voicemail_leave_main(switch_core_session_t *session, vm_p
 						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING,
 										  "Using deprecated 'storage-dir' directory variable: Please use 'vm-domain-storage-dir'.\n");
 						storage_dir = switch_core_session_strdup(session, val);
-					} else if (!strcasecmp(var, "vm-notify-email-all-messages") && (send_notify = switch_true(val))) {
-						send_mail++;
 					} else if (!strcasecmp(var, "vm-disk-quota")) {
 						disk_quota = atoi(val);
 					} else if (!strcasecmp(var, "vm-alternate-greet-id")) {
@@ -3463,12 +3459,6 @@ static switch_status_t voicemail_leave_main(switch_core_session_t *session, vm_p
 					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "No notify email address, not going to notify.\n");
 					send_notify = 0;
 				}
-			}
-
-			if (send_mail && (!(send_main || send_notify))) {
-				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING,
-								  "Falling back to leaving message locally due to too many misconfiguration.\n");
-				send_mail = 0;
 			}
 
 		} else {
@@ -3577,7 +3567,6 @@ static switch_status_t voicemail_leave_main(switch_core_session_t *session, vm_p
 					if (argc >= 1 && argc <= 4) {
 						switch_ivr_session_transfer(session, argv[0], argv[1], argv[2]);
 						/* the application still runs after we leave it so we need to make sure that we don't do anything evil */
-						send_mail = 0;
 						goto end;
 					}
 				}
@@ -3591,7 +3580,6 @@ static switch_status_t voicemail_leave_main(switch_core_session_t *session, vm_p
 					if (argc >= 1 && argc <= 4) {
 						switch_ivr_session_transfer(session, argv[0], argv[1], argv[2]);
 						/* the application still runs after we leave it so we need to make sure that we don't do anything evil */
-						send_mail = 0;
 						goto end;
 					}
 				}
@@ -3671,6 +3659,7 @@ static switch_status_t voicemail_leave_main(switch_core_session_t *session, vm_p
 		switch_snprintf(key_buf, sizeof(key_buf), "%s:%s", profile->urgent_key, profile->terminator_key);
 		if (!skip_record_urgent_check) {
 			(void) vm_macro_get(session, VM_RECORD_URGENT_CHECK_MACRO, key_buf, input, sizeof(input), 1, "", &term, profile->digit_timeout);
+			if (!switch_channel_ready(channel)) goto deliver;
 			if (*profile->urgent_key == *input) {
 				read_flags = URGENT_FLAG_STRING;
 				(void) switch_ivr_phrase_macro(session, VM_ACK_MACRO, "marked-urgent", NULL, NULL);
@@ -3680,6 +3669,7 @@ static switch_status_t voicemail_leave_main(switch_core_session_t *session, vm_p
 		}
 	}
 
+ deliver:
 	if (x_user) {
 		switch_channel_get_variables(channel, &vars);
 		status = deliver_vm(profile, x_user, domain_name, file_path, message_len, read_flags, vars,
@@ -6270,7 +6260,9 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_voicemail_shutdown)
 		switch_core_destroy_memory_pool(&profile->pool);
 		profile = NULL;
 	}
+	switch_core_hash_destroy(&globals.profile_hash);
 	switch_mutex_unlock(globals.mutex);
+	switch_mutex_destroy(globals.mutex);
 
 	return SWITCH_STATUS_SUCCESS;
 }

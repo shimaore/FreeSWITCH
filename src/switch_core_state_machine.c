@@ -304,7 +304,10 @@ void switch_core_state_machine_init(switch_memory_pool_t *pool)
 
 #define STATE_MACRO(__STATE, __STATE_STR)						do {	\
 		midstate = state;												\
-		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "(%s) State %s\n", switch_channel_get_name(session->channel), __STATE_STR);	\
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "(%s) State %s\n", switch_channel_get_name(session->channel), __STATE_STR); \
+		if (state < CS_HANGUP && switch_channel_get_callstate(session->channel) == CCS_UNHELD) { \
+			switch_channel_set_callstate(session->channel, CCS_ACTIVE);	\
+		}																\
 		if (!driver_state_handler->on_##__STATE || (driver_state_handler->on_##__STATE(session) == SWITCH_STATUS_SUCCESS \
 													)) {				\
 			while (do_extra_handlers && (application_state_handler = switch_channel_get_state_handler(session->channel, index++)) != 0) { \
@@ -675,6 +678,7 @@ SWITCH_DECLARE(void) switch_core_session_hangup_state(switch_core_session_t *ses
 	//switch_channel_presence(session->channel, "unknown", switch_channel_cause2str(cause), NULL);
 
 	switch_channel_set_timestamps(session->channel);
+	switch_channel_set_callstate(session->channel, CCS_HANGUP);
 
 	STATE_MACRO(hangup, "HANGUP");
 
@@ -687,7 +691,8 @@ SWITCH_DECLARE(void) switch_core_session_hangup_state(switch_core_session_t *ses
 		api_hook(session, hook_var, use_session);
 	}
 
-	switch_channel_set_callstate(session->channel, CCS_HANGUP);
+	switch_channel_process_device_hangup(session->channel);
+	
 	switch_set_flag(session, SSF_HANGUP);
 
 }

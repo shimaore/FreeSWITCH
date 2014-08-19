@@ -1344,6 +1344,10 @@ SWITCH_DECLARE(void) switch_load_network_lists(switch_bool_t reload)
 
 						switch_event_destroy(&my_params);
 
+						if ((ut = switch_xml_child(x_domain, "users"))) {
+							x_domain = ut;
+						}
+
 						for (ut = switch_xml_child(x_domain, "user"); ut; ut = ut->next) {
 							const char *user_cidr = switch_xml_attr(ut, "cidr");
 							const char *id = switch_xml_attr(ut, "id");
@@ -2387,6 +2391,10 @@ SWITCH_DECLARE(int32_t) switch_core_session_ctl(switch_session_ctl_t cmd, void *
 	case SCSC_SHUTDOWN_NOW:
 		switch_console_save_history();
 		exit(0);
+		break;
+	case SCSC_REINCARNATE_NOW:
+		switch_console_save_history();
+		exit(SWITCH_STATUS_RESTART);
 		break;
 	case SCSC_SHUTDOWN_ELEGANT:
 	case SCSC_SHUTDOWN_ASAP:

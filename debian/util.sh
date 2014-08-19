@@ -295,12 +295,15 @@ build_debs () {
     }
     if ! [ -d $cow_img ]; then
       announce "Creating base $distro-$arch image..."
-      cow --create
+      local x=30
+      while ! cow --create; do
+        [ $x -lt 1 ] && break; sleep 120; x=$((x-1))
+      done
     fi
     announce "Updating base $distro-$arch image..."
-    local x=5
-    while ! cow --update; do
-      [ $x -lt 1 ] && break; sleep 60; x=$((x-1))
+    local x=30
+    while ! cow --update --override-config; do
+      [ $x -lt 1 ] && break; sleep 120; x=$((x-1))
     done
     announce "Building $distro-$arch DEBs from $dsc..."
     if $debug_hook; then
@@ -358,6 +361,7 @@ build_all () {
   echo; echo; echo; echo
   trap 'echo "Killing children...">&2; for x in $(jobs -p); do kill $x; done' EXIT
   if [ "${orig:0:2}" = ".." ]; then
+    echo "true" > ../log/builds-ok
     for distro in $distros; do
       echo "Creating $distro dsc..." >&2
       local dsc="$(create_dsc $dsc_opts $distro $orig 2>../log/$distro | tail -n1)"
@@ -371,6 +375,8 @@ build_all () {
             echo "Done building $distro-$arch debs." >&2
             if [ "${changes:0:2}" = ".." ]; then
               echo "$changes" >> ../log/changes
+            else
+              echo "false" > ../log/builds-ok
             fi
           } &
           $par || wait
@@ -383,6 +389,7 @@ build_all () {
   [ -z "$modlist" ] || rm -f $modtmp
   trap - EXIT
   cat ../log/changes
+  test "$(cat ../log/builds-ok)" = true || exit 1
 }
 
 usage () {

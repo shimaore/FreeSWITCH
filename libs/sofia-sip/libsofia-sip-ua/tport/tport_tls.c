@@ -202,7 +202,7 @@ void tls_set_default(tls_issues_t *i)
   i->key = i->key ? i->key : i->cert;
   i->randFile = i->randFile ? i->randFile : "tls_seed.dat";
   i->CAfile = i->CAfile ? i->CAfile : "cafile.pem";
-  i->ciphers = i->ciphers ? i->ciphers : "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH";
+  i->ciphers = i->ciphers ? i->ciphers : "!eNULL:!aNULL:!EXP:!LOW:!MD5:ALL:@STRENGTH";
   /* Default SIP cipher */
   /* "RSA-WITH-AES-128-CBC-SHA"; */
   /* RFC-2543-compatibility ciphersuite */
@@ -284,9 +284,12 @@ int tls_init_ecdh_curve(tls_t *tls)
   SSL_CTX_set_tmp_ecdh(tls->ctx, ecdh);
   EC_KEY_free(ecdh);
   return 0;
-#endif
-#endif
+#else
   return -1;
+#endif
+#else
+  return -1;
+#endif
 }
 
 static
@@ -339,6 +342,10 @@ int tls_init_context(tls_t *tls, tls_issues_t const *ti)
 #endif
   SSL_CTX_sess_set_remove_cb(tls->ctx, NULL);
   SSL_CTX_set_timeout(tls->ctx, ti->timeout);
+#ifdef SSL_OP_NO_COMPRESSION
+  /* CRIME (CVE-2012-4929) mitigation */
+  SSL_CTX_set_options(tls->ctx, SSL_OP_NO_COMPRESSION);
+#endif
 
   /* Set callback if we have a passphrase */
   if (ti->passphrase != NULL) {
@@ -547,10 +554,33 @@ su_inline
 int tls_post_connection_check(tport_t *self, tls_t *tls)
 {
   X509 *cert;
+#if OPENSSL_VERSION_NUMBER < 0x009080bfL
+  SSL_CIPHER *cipher;
+#else
+  const SSL_CIPHER *cipher;
+#endif
+  char cipher_description[256];
+  int cipher_bits, alg_bits;
   int extcount;
   int i, j, error;
 
   if (!tls) return -1;
+
+  if (!(cipher = SSL_get_current_cipher(tls->con))) {
+    SU_DEBUG_7(("%s(%p): %s\n", __func__, (void*)self,
+                "OpenSSL failed to return an SSL_CIPHER object to us."));
+    return SSL_ERROR_SSL;
+  }
+  SU_DEBUG_9(("%s(%p): TLS cipher chosen (name): %s\n", __func__, (void*)self,
+              SSL_CIPHER_get_name(cipher)));
+  SU_DEBUG_9(("%s(%p): TLS cipher chosen (version): %s\n", __func__, (void*)self,
+              SSL_CIPHER_get_version(cipher)));
+  cipher_bits = SSL_CIPHER_get_bits(cipher, &alg_bits);
+  SU_DEBUG_9(("%s(%p): TLS cipher chosen (bits/alg_bits): %d/%d\n", __func__, (void*)self,
+              cipher_bits, alg_bits));
+  SSL_CIPHER_description(cipher, cipher_description, sizeof(cipher_description));
+  SU_DEBUG_9(("%s(%p): TLS cipher chosen (description): %s\n", __func__, (void*)self,
+              cipher_description));
 
   cert = SSL_get_peer_certificate(tls->con);
   if (!cert) {

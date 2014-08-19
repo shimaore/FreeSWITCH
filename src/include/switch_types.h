@@ -1120,7 +1120,7 @@ typedef enum {
 	CCS_HELD,
 	CCS_RING_WAIT,
 	CCS_HANGUP,
-	CCS_UNHOLD
+	CCS_UNHELD
 } switch_channel_callstate_t;
 
 typedef enum {
@@ -1129,6 +1129,7 @@ typedef enum {
 	SDS_ACTIVE,
 	SDS_ACTIVE_MULTI,
 	SDS_HELD,
+	SDS_UNHELD,
 	SDS_HANGUP
 } switch_device_state_t;
 
@@ -1315,6 +1316,7 @@ typedef enum {
 	CF_NOVIDEO,
 	CF_VIDEO_ECHO,
 	CF_SLA_INTERCEPT,
+	CF_HANGUP_HELD,
 	/* WARNING: DO NOT ADD ANY FLAGS BELOW THIS LINE */
 	/* IF YOU ADD NEW ONES CHECK IF THEY SHOULD PERSIST OR ZERO THEM IN switch_core_session.c switch_core_session_request_xml() */
 	CF_FLAG_MAX
@@ -1859,6 +1861,7 @@ typedef enum {
 	SCSC_DEBUG_LEVEL,
 	SCSC_FLUSH_DB_HANDLES,
 	SCSC_SHUTDOWN_NOW,
+	SCSC_REINCARNATE_NOW,
 	SCSC_CALIBRATE_CLOCK,
 	SCSC_SAVE_HISTORY,
 	SCSC_CRASH,

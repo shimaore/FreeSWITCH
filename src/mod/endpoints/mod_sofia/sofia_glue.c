@@ -41,7 +41,7 @@ switch_cache_db_handle_t *_sofia_glue_get_db_handle(sofia_profile_t *profile, co
 
 static int get_channels(const char *name, int dft)
 {
-	if (!strcasecmp(name, "opus")) {
+	if (switch_false(switch_core_get_variable("NDLB_broken_opus_sdp")) && !strcasecmp(name, "opus")) {
 		return 2; /* IKR???*/
 	}
 
@@ -1697,6 +1697,12 @@ switch_status_t sofia_glue_tech_proxy_remote_addr(private_object_t *tech_pvt, co
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(tech_pvt->session), SWITCH_LOG_DEBUG, "Remote address:port [%s:%d] has not changed.\n",
 							  tech_pvt->remote_sdp_audio_ip, tech_pvt->remote_sdp_audio_port);
 			switch_goto_status(SWITCH_STATUS_BREAK, end);
+		} else if (remote_host && ( (strcmp(remote_host, "0.0.0.0") == 0) ||
+									(strcmp(tech_pvt->remote_sdp_audio_ip, "0.0.0.0") == 0))) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(tech_pvt->session), SWITCH_LOG_DEBUG,
+							  "Remote address changed from [%s] to [%s]. Ignoring...\n", 
+							  tech_pvt->remote_sdp_audio_ip, remote_host);
+			switch_goto_status(SWITCH_STATUS_BREAK, end);
 		}
 
 		if ((rport = switch_channel_get_variable(tech_pvt->channel, "sip_remote_audio_rtcp_port"))) {
@@ -1745,10 +1751,12 @@ void sofia_glue_tech_patch_sdp(private_object_t *tech_pvt)
 
 	len = strlen(tech_pvt->local_sdp_str) * 2;
 
-	if (switch_channel_test_flag(tech_pvt->channel, CF_ANSWERED) &&
-		(switch_stristr("sendonly", tech_pvt->local_sdp_str) || switch_stristr("0.0.0.0", tech_pvt->local_sdp_str))) {
-		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(tech_pvt->session), SWITCH_LOG_DEBUG, "Skip patch on hold SDP\n");
-		return;
+	if (!(tech_pvt->profile->ndlb & PFLAG_NDLB_NEVER_PATCH_REINVITE)) {
+		if (switch_channel_test_flag(tech_pvt->channel, CF_ANSWERED) &&
+			(switch_stristr("sendonly", tech_pvt->local_sdp_str) || switch_stristr("0.0.0.0", tech_pvt->local_sdp_str))) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(tech_pvt->session), SWITCH_LOG_DEBUG, "Skip patch on hold SDP\n");
+			return;
+		}
 	}
 
 	if (zstr(tech_pvt->adv_sdp_audio_ip) || !tech_pvt->adv_sdp_audio_port) {
@@ -4378,7 +4386,7 @@ int sofia_glue_toggle_hold(private_object_t *tech_pvt, int sendonly)
 				const char *info;
 
 				if ((sofia_test_flag(tech_pvt, TFLAG_SLA_BARGE) || sofia_test_flag(tech_pvt, TFLAG_SLA_BARGING)) &&
-					(!b_channel || switch_channel_test_flag(b_channel, CF_BROADCAST))) {
+					(!b_channel || switch_channel_test_flag(b_channel, CF_EVENT_LOCK_PRI))) {
 					switch_channel_mark_hold(tech_pvt->channel, sendonly);
 					sofia_set_flag_locked(tech_pvt, TFLAG_SIP_HOLD);
 					changed = 0;
@@ -4408,7 +4416,7 @@ int sofia_glue_toggle_hold(private_object_t *tech_pvt, int sendonly)
 				stream = tech_pvt->profile->hold_music;
 			}
 
-			if (stream && strcasecmp(stream, "silence") && (!b_channel || !switch_channel_test_flag(b_channel, CF_BROADCAST))) {
+			if (stream && strcasecmp(stream, "silence") && (!b_channel || !switch_channel_test_flag(b_channel, CF_EVENT_LOCK_PRI))) {
 				if (!strcasecmp(stream, "indicate_hold")) {
 					switch_channel_set_flag(tech_pvt->channel, CF_SUSPEND);
 					switch_channel_set_flag(tech_pvt->channel, CF_HOLD);

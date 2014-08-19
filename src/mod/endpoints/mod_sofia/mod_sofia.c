@@ -1895,6 +1895,12 @@ static switch_status_t sofia_receive_message(switch_core_session_t *session, swi
 			const char *presence_id = switch_channel_get_variable(channel, "presence_id");
 
 
+			if ((var = switch_channel_get_variable(channel, "sip_force_nat_mode")) && switch_true(var)) {
+				sofia_set_flag(tech_pvt, TFLAG_NAT);
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Setting NAT mode based on manual variable\n");
+				switch_channel_set_variable(channel, "sip_nat_detected", "true");
+			}
+
 			if ((var = switch_channel_get_variable(channel, "sip_enable_soa"))) {
 				if (switch_true(var)) {
 					sofia_set_flag(tech_pvt, TFLAG_ENABLE_SOA);
@@ -2227,6 +2233,7 @@ static switch_status_t sofia_receive_message(switch_core_session_t *session, swi
 			}
 
 		}
+		break;
 	case SWITCH_MESSAGE_INDICATE_MESSAGE:
 		{
 			char *ct = "text/plain";
@@ -5956,6 +5963,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_sofia_load)
 	switch_management_interface_t *management_interface;
 	switch_application_interface_t *app_interface;
 	struct in_addr in;
+	struct tm tm = {0};
+	time_t now;
 
 	memset(&mod_sofia_globals, 0, sizeof(mod_sofia_globals));
 	mod_sofia_globals.destroy_private.destroy_nh = 1;
@@ -5963,6 +5972,11 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_sofia_load)
 	mod_sofia_globals.keep_private.is_static = 1;
 	mod_sofia_globals.pool = pool;
 	switch_mutex_init(&mod_sofia_globals.mutex, SWITCH_MUTEX_NESTED, mod_sofia_globals.pool);
+
+	now = switch_epoch_time_now(NULL);
+	tm = *(localtime(&now));
+
+	mod_sofia_globals.presence_epoch = now - (tm.tm_yday * 86400);
 
 	switch_find_local_ip(mod_sofia_globals.guess_ip, sizeof(mod_sofia_globals.guess_ip), &mod_sofia_globals.guess_mask, AF_INET);
 	in.s_addr = mod_sofia_globals.guess_mask;

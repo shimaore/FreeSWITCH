@@ -229,6 +229,7 @@ typedef enum {
 	PFLAG_STUN_ENABLED,
 	PFLAG_STUN_AUTO_DISABLE,
 	PFLAG_3PCC_PROXY,
+	PFLAG_3PCC_REINVITE_BRIDGED_ON_ACK,
 	PFLAG_CALLID_AS_UUID,
 	PFLAG_UUID_AS_CALLID,
 	PFLAG_SCROOGE,
@@ -298,7 +299,8 @@ typedef enum {
 	PFLAG_NDLB_ALLOW_BAD_IANANAME = (1 << 3),
 	PFLAG_NDLB_ALLOW_NONDUP_SDP = (1 << 4),
 	PFLAG_NDLB_ALLOW_CRYPTO_IN_AVP = (1 << 5),
-	PFLAG_NDLB_EXPIRES_IN_REGISTER_RESPONSE = (1 << 6)
+	PFLAG_NDLB_EXPIRES_IN_REGISTER_RESPONSE = (1 << 6),
+	PFLAG_NDLB_NEVER_PATCH_REINVITE = (1 << 7)
 } sofia_NDLB_t;
 
 typedef enum {
@@ -400,6 +402,7 @@ struct mod_sofia_globals {
 	int presence_flush;
 	switch_thread_t *presence_thread;
 	uint32_t max_reg_threads;
+	time_t presence_epoch;
 };
 extern struct mod_sofia_globals mod_sofia_globals;
 
@@ -461,6 +464,7 @@ typedef enum {
 	SUB_STATE_SUBED,
 	SUB_STATE_UNSUBSCRIBE,
 	SUB_STATE_FAILED,
+	SUB_STATE_FAIL_WAIT,
 	SUB_STATE_EXPIRED,
 	SUB_STATE_NOSUB,
 	v_STATE_LAST
@@ -570,6 +574,7 @@ typedef enum {
 
 struct sofia_profile {
 	int debug;
+	int parse_invite_tel_params;
 	char *name;
 	char *domain_name;
 	char *dbname;
@@ -704,7 +709,7 @@ struct sofia_profile {
 	int watchdog_enabled;
 	switch_mutex_t *gw_mutex;
 	uint32_t queued_events;
-	uint32_t cseq_base;
+	uint32_t last_cseq;
 	int tls_only;
 	int tls_verify_date;
 	enum tport_tls_verify_policy tls_verify_policy;
@@ -788,6 +793,7 @@ struct private_object {
 	char *early_sdp;
 	char *local_sdp_str;
 	char *last_sdp_str;
+	char *last_sdp_response;
 	char *dest;
 	char *dest_to;
 	char *key;

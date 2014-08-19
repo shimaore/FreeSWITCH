@@ -1,6 +1,6 @@
 /*
  * mod_rayo for FreeSWITCH Modular Media Switching Software Library / Soft-Switch Application
- * Copyright (C) 2013, Grasshopper
+ * Copyright (C) 2013-2014, Grasshopper
  *
  * Version: MPL 1.1
  *
@@ -775,7 +775,7 @@ static int process_cdata_tokens(struct srgs_grammar *grammar, char *data, size_t
 				*end = '\0';
 			}
 			if (!zstr(start)) {
-				string = sn_insert_string(grammar->pool, string, start);
+				sn_insert_string(grammar->pool, string, start);
 			}
 		}
 	}
@@ -1074,7 +1074,7 @@ static pcre *get_compiled_regex(struct srgs_grammar *grammar)
 	const char *regex;
 
 	if (!grammar) {
-		switch_log_printf(SWITCH_CHANNEL_UUID_LOG(grammar->uuid), SWITCH_LOG_CRIT, "grammar is NULL!\n");
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "grammar is NULL!\n");
 		return NULL;
 	}
 
@@ -1226,6 +1226,10 @@ static int is_match_end(pcre *compiled_regex, const char *input)
 	const char *search_set = "0123456789#*ABCD";
 	const char *search = strchr(search_set, input[input_size - 1]); /* start with last digit in input */
 	int i = 0;
+
+	if (!search) {
+		return 0;
+	}
 
 	/* For each digit in search_set, check if input + search_set digit is a potential match.
 	   If so, then this is not a match end.
@@ -1569,7 +1573,7 @@ const char *srgs_grammar_to_jsgf(struct srgs_grammar *grammar)
 const char *srgs_grammar_to_jsgf_file(struct srgs_grammar *grammar, const char *basedir, const char *ext)
 {
 	if (!grammar) {
-		switch_log_printf(SWITCH_CHANNEL_UUID_LOG(grammar->uuid), SWITCH_LOG_CRIT, "grammar is NULL!\n");
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "grammar is NULL!\n");
 		return NULL;
 	}
 	switch_mutex_lock(grammar->mutex);

@@ -739,7 +739,7 @@ issize_t msg_buf_external(msg_t *msg,
 			  usize_t N,
 			  usize_t blocksize)
 {
-  msg_buffer_t *ext, *b, **bb;
+  msg_buffer_t *ext = NULL, *b, **bb;
   size_t i, I;
 
   assert(N <= 128 * 1024);
@@ -1680,7 +1680,7 @@ size_t msg_header_prepare(msg_mclass_t const *mc, int flags,
     n += m;
 
     if (hc->hc_name) {
-      if (!comma_list || !next || next == *return_next)
+      if (!hc->hc_name[0] || !comma_list || !next || next == *return_next)
 	s = CRLF, m = 2;
       /* Else encode continuation */
       else if (compact)

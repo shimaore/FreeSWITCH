@@ -985,8 +985,8 @@ ESL_DECLARE(esl_status_t) esl_connect_timeout(esl_handle_t *handle, const char *
 		goto fail;
 	}
 
-	memcpy(&handle->sockaddr, result->ai_addr, sizeof(handle->sockaddr));	
-        switch(handle->sockaddr.ss_family) {
+	memcpy(&handle->sockaddr, result->ai_addr, result->ai_addrlen);	
+	switch(handle->sockaddr.ss_family) {
 		case AF_INET:
 			sockaddr_in = (struct sockaddr_in*)&(handle->sockaddr);
 			sockaddr_in->sin_port = htons(port);
@@ -1556,7 +1556,7 @@ ESL_DECLARE(esl_status_t) esl_send_recv_timed(esl_handle_t *handle, const char *
 	if (handle->last_sr_event) {
 		char *ct = esl_event_get_header(handle->last_sr_event,"content-type");
 
-		if (strcasecmp(ct, "api/response") && strcasecmp(ct, "command/reply")) {
+		if (ct && strcasecmp(ct, "api/response") && strcasecmp(ct, "command/reply")) {
 			esl_event_t *ep;
 
 			for(ep = handle->race_event; ep && ep->next; ep = ep->next);

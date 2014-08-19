@@ -92,12 +92,12 @@ char* skinny_codec2string(skinny_codecs skinnycodec);
 /*****************************************************************************/
 
 #define skinny_create_message(message,msgtype,field) \
-    message = calloc(12 + sizeof(message->data.field), 1); \
+    message = calloc(1, 12 + sizeof(message->data.field)); \
     message->type = msgtype; \
     message->length = 4 + sizeof(message->data.field)
 
 #define skinny_create_empty_message(message,msgtype) \
-    message = calloc(12, 1); \
+    message = calloc(1, 12); \
     message->type = msgtype; \
     message->length = 4
 
@@ -458,7 +458,7 @@ struct PACKED dialed_phone_book_message {
 struct PACKED accessory_status_message {
 	uint32_t accessory_id;
 	uint32_t accessory_status;
-	uint32_t unknown;
+	/* uint32_t unknown; */ /* this field is missing in 7925G */
 };
 
 /* RegisterAckMessage */
@@ -683,7 +683,9 @@ struct PACKED open_receive_channel_message {
 	uint32_t echo_cancel_type;
 	uint32_t g723_bitrate;
 	uint32_t conference_id2;
-	uint32_t reserved[10];
+	uint32_t reserved[14];
+	uint32_t rtpdtmfpayload;
+	uint32_t rtptimeout;
 };
 
 /* CloseReceiveChannelMessage */

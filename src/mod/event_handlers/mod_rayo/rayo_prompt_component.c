@@ -1,6 +1,6 @@
 /*
  * mod_rayo for FreeSWITCH Modular Media Switching Software Library / Soft-Switch Application
- * Copyright (C) 2013, Grasshopper
+ * Copyright (C) 2013-2014, Grasshopper
  *
  * Version: MPL 1.1
  *
@@ -312,7 +312,7 @@ static iks *prompt_component_handle_input_error(struct rayo_actor *prompt, struc
 			iks_insert_attrib(iq, "from", RAYO_JID(RAYO_COMPONENT(prompt)->parent));
 			iks_insert_attrib(iq, "to", RAYO_COMPONENT(prompt)->client_jid);
 			iks_insert_node(iq, iks_copy_within(error, iks_stack(iq)));
-			PROMPT_COMPONENT(prompt)->complete = iq;
+			PROMPT_COMPONENT(prompt)->complete = iks_copy(iq);
 
 			rayo_component_send_stop(prompt, PROMPT_COMPONENT(prompt)->output_jid);
 			break;
@@ -559,7 +559,11 @@ static iks *start_call_prompt_component(struct rayo_actor *call, struct rayo_mes
 	/* create prompt component, linked to call */
 	switch_core_new_memory_pool(&pool);
 	prompt_component = switch_core_alloc(pool, sizeof(*prompt_component));
-	rayo_component_init(RAYO_COMPONENT(prompt_component), pool, RAT_CALL_COMPONENT, "prompt", NULL, call, iks_find_attrib(iq, "from"));
+	prompt_component = PROMPT_COMPONENT(rayo_component_init(RAYO_COMPONENT(prompt_component), pool, RAT_CALL_COMPONENT, "prompt", NULL, call, iks_find_attrib(iq, "from")));
+	if (!prompt_component) {
+		switch_core_destroy_memory_pool(&pool);
+		return iks_new_error_detailed(iq, STANZA_ERROR_INTERNAL_SERVER_ERROR, "Failed to create prompt entity");
+	}
 	prompt_component->iq = iks_copy(iq);
 
 	/* start output */

@@ -253,6 +253,15 @@ void sofia_sub_check_gateway(sofia_profile_t *profile, time_t now)
 				break;
 
 			case SUB_STATE_FAILED:
+				gw_sub_ptr->expires = now;
+				gw_sub_ptr->retry = now + gw_sub_ptr->retry_seconds;
+				gw_sub_ptr->state = SUB_STATE_FAIL_WAIT;
+				break;
+			case SUB_STATE_FAIL_WAIT:
+				if (!gw_sub_ptr->retry || now >= gw_sub_ptr->retry) {
+					gw_sub_ptr->state = SUB_STATE_UNSUBED;
+				}
+				break;
 			case SUB_STATE_TRYING:
 				if (gw_sub_ptr->retry && now >= gw_sub_ptr->retry) {
 					gw_sub_ptr->state = SUB_STATE_UNSUBED;
@@ -1363,7 +1372,7 @@ uint8_t sofia_reg_handle_register(nua_t *nua, sofia_profile_t *profile, nua_hand
 				to_user = force_user;
 			}
 
-			if (profile->server_rport_level == 3 && sip->sip_user_agent &&
+			if (profile->server_rport_level >= 2 && sip->sip_user_agent &&
 				sip->sip_user_agent->g_string &&
 				( !strncasecmp(sip->sip_user_agent->g_string, "Polycom", 7) || !strncasecmp(sip->sip_user_agent->g_string, "KIRK Wireless Server", 20) )) {
 				if (sip && sip->sip_via) {
@@ -2167,7 +2176,14 @@ void sofia_reg_handle_sip_r_challenge(int status,
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Missing Authenticate Header!\n");
 		goto end;
 	}
+
+
 	scheme = (char const *) authenticate->au_scheme;
+
+	if (zstr(scheme)) {
+		scheme = "Digest";
+	}
+
 	if (authenticate->au_params) {
 		for (indexnum = 0; (cur = (char *) authenticate->au_params[indexnum]); indexnum++) {
 			if ((realm = strstr(cur, "realm="))) {
@@ -2175,6 +2191,18 @@ void sofia_reg_handle_sip_r_challenge(int status,
 				break;
 			}
 		}
+
+		if (zstr(realm)) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Realm: [%s] is invalid\n", switch_str_nil(realm));
+
+			for (indexnum = 0; (cur = (char *) authenticate->au_params[indexnum]); indexnum++) {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "DUMP: [%s]\n", cur);
+			}
+			goto end;
+		}
+	} else {
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "NO AUTHENTICATE PARAMS\n");
+		goto end;
 	}
 
 	if (!gateway) {
@@ -2241,11 +2269,6 @@ void sofia_reg_handle_sip_r_challenge(int status,
 		}
 
 		switch_event_destroy(&locate_params);
-	}
-
-	if (!(scheme && realm)) {
-		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "No scheme and realm!\n");
-		goto end;
 	}
 
 	if (sip_auth_username && sip_auth_password) {
